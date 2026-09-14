@@ -1,13 +1,13 @@
 import { prisma } from "../db/prisma";
-import { Category, Listing, Location, SearchFilters } from "../types";
+import { Category, Listing, Location, SearchFilters, SearchResults } from "../types";
 import { DEMO_CATEGORIES, DEMO_LOCATIONS, DEMO_LISTINGS } from "./demo-data";
-import { CreateListingInput } from "../validations/listing";
+import { CreateListingInput, EditListingInput } from "../validations/listing";
 import {
   DatabaseUnavailableError,
   AuthorizationError,
   ValidationError,
 } from "../errors";
-import { Role, ListingStatus, PriceType } from "@prisma/client";
+import { Role, ListingStatus, PriceType, ListingCondition, ReportStatus } from "@prisma/client";
 import { slugify } from "../utils";
 
 // =====================================================================
@@ -44,6 +44,8 @@ function mapPrismaListingToDomain(item: any): Listing {
       | "monthly"
       | "free"
       | "contact",
+    condition: (item.condition as any) || "GOOD",
+    status: (item.status as any) || "PUBLISHED",
     categorySlug: item.category?.slug || "",
     categoryName: item.category?.name || "Uncategorized",
     locationSlug: item.location?.slug || "",
@@ -54,6 +56,7 @@ function mapPrismaListingToDomain(item: any): Listing {
       id: item.seller?.id || item.sellerId,
       name: item.seller?.profile?.displayName || item.seller?.name || "Verified Member",
       avatar: item.seller?.profile?.avatar || undefined,
+      phone: item.seller?.profile?.phone || undefined,
       isVerified: item.seller?.profile?.isVerified || false,
       memberSince: item.seller?.createdAt
         ? new Date(item.seller.createdAt).toLocaleDateString("en-US", {
@@ -73,6 +76,7 @@ function mapPrismaListingToDomain(item: any): Listing {
     },
     createdAt: item.createdAt instanceof Date ? item.createdAt.toISOString() : String(item.createdAt),
     viewsCount: item.viewsCount || 0,
+    contactPhone: item.seller?.profile?.phone || undefined,
   };
 }
 
@@ -165,7 +169,7 @@ export async function createListing(
     const baseSlug = slugify(input.title);
     const uniqueSlug = `${baseSlug}-${Date.now().toString(36)}`;
 
-    // 3. Map PriceType enum
+    // 3. Map PriceType and Condition enum
     const priceTypeMap: Record<string, PriceType> = {
       fixed: PriceType.FIXED,
       hourly: PriceType.HOURLY,
@@ -174,7 +178,18 @@ export async function createListing(
       contact: PriceType.CONTACT,
     };
 
-    // 4. Create in PostgreSQL
+    const conditionMap: Record<string, ListingCondition> = {
+      NEW_CONDITION: ListingCondition.NEW_CONDITION,
+      LIKE_NEW: ListingCondition.LIKE_NEW,
+      EXCELLENT: ListingCondition.EXCELLENT,
+      GOOD: ListingCondition.GOOD,
+      FAIR: ListingCondition.FAIR,
+      FOR_PARTS: ListingCondition.FOR_PARTS,
+    };
+
+    const condition = conditionMap[input.condition] || ListingCondition.GOOD;
+
+    // 4. Create in PostgreSQL with images
     const created = await prisma.listing.create({
       data: {
         title: input.title,
@@ -184,16 +199,24 @@ export async function createListing(
         currency: input.currency || "USD",
         negotiable: Boolean(input.isNegotiable),
         priceType: priceTypeMap[input.priceType] || PriceType.FIXED,
+        condition,
         status: ListingStatus.PUBLISHED,
         sellerId,
         categoryId: category.id,
         locationId: location.id,
+        images: {
+          create: (input.images || []).map((url, idx) => ({
+            url,
+            altText: `${input.title} - Photo ${idx + 1}`,
+            sortOrder: idx,
+          })),
+        },
       },
       include: {
         category: true,
         location: true,
         seller: { include: { profile: true } },
-        images: true,
+        images: { orderBy: { sortOrder: "asc" } },
         promotions: true,
       },
     });
@@ -205,6 +228,181 @@ export async function createListing(
     throw new DatabaseUnavailableError(
       "Unable to save listing at this time. Database service is unavailable."
     );
+  }
+}
+
+/**
+ * Server-side verified listing update. Enforces ownership authorization.
+ * FAILS CLOSED: Never performs mutations if PostgreSQL is unreachable.
+ */
+export async function updateListing(
+  listingId: string,
+  input: EditListingInput,
+  userId: string,
+  userRole: Role
+): Promise<Listing> {
+  try {
+    const listing = await prisma.listing.findUnique({
+      where: { id: listingId },
+      include: { images: true },
+    });
+
+    if (!listing) {
+      throw new ValidationError("Listing not found.");
+    }
+
+    // Server-side ownership check: seller or ADMIN
+    if (listing.sellerId !== userId && userRole !== Role.ADMIN) {
+      throw new AuthorizationError("You are not authorized to edit this listing.");
+    }
+
+    // Resolve category & location
+    const category = await prisma.category.findUnique({
+      where: { slug: input.categorySlug },
+    });
+    if (!category) throw new ValidationError(`Category '${input.categorySlug}' not found.`);
+
+    const location = await prisma.location.findUnique({
+      where: { slug: input.locationSlug },
+    });
+    if (!location) throw new ValidationError(`Location '${input.locationSlug}' not found.`);
+
+    const priceTypeMap: Record<string, PriceType> = {
+      fixed: PriceType.FIXED,
+      hourly: PriceType.HOURLY,
+      monthly: PriceType.MONTHLY,
+      free: PriceType.FREE,
+      contact: PriceType.CONTACT,
+    };
+
+    const conditionMap: Record<string, ListingCondition> = {
+      NEW_CONDITION: ListingCondition.NEW_CONDITION,
+      LIKE_NEW: ListingCondition.LIKE_NEW,
+      EXCELLENT: ListingCondition.EXCELLENT,
+      GOOD: ListingCondition.GOOD,
+      FAIR: ListingCondition.FAIR,
+      FOR_PARTS: ListingCondition.FOR_PARTS,
+    };
+
+    // Update images if provided
+    if (input.images) {
+      await prisma.listingImage.deleteMany({ where: { listingId } });
+      if (input.images.length > 0) {
+        await prisma.listingImage.createMany({
+          data: input.images.map((url, idx) => ({
+            listingId,
+            url,
+            altText: `${input.title} - Photo ${idx + 1}`,
+            sortOrder: idx,
+          })),
+        });
+      }
+    }
+
+    const updated = await prisma.listing.update({
+      where: { id: listingId },
+      data: {
+        title: input.title,
+        description: input.description,
+        price: input.price,
+        currency: input.currency || "USD",
+        negotiable: Boolean(input.isNegotiable),
+        priceType: priceTypeMap[input.priceType] || PriceType.FIXED,
+        condition: conditionMap[input.condition] || listing.condition,
+        categoryId: category.id,
+        locationId: location.id,
+      },
+      include: {
+        category: true,
+        location: true,
+        seller: { include: { profile: true } },
+        images: { orderBy: { sortOrder: "asc" } },
+        promotions: true,
+      },
+    });
+
+    return mapPrismaListingToDomain(updated);
+  } catch (err) {
+    if (err instanceof AuthorizationError || err instanceof ValidationError) throw err;
+    console.error("[Repository] Database error in updateListing:", err);
+    throw new DatabaseUnavailableError("Unable to update listing. Database service is unavailable.");
+  }
+}
+
+/**
+ * Server-side verified listing archive (soft deletion). Enforces ownership.
+ */
+export async function archiveListing(
+  listingId: string,
+  userId: string,
+  userRole: Role
+): Promise<void> {
+  try {
+    const listing = await prisma.listing.findUnique({
+      where: { id: listingId },
+    });
+
+    if (!listing) {
+      throw new ValidationError("Listing not found.");
+    }
+
+    if (listing.sellerId !== userId && userRole !== Role.ADMIN) {
+      throw new AuthorizationError("You are not authorized to archive this listing.");
+    }
+
+    await prisma.listing.update({
+      where: { id: listingId },
+      data: { status: ListingStatus.ARCHIVED },
+    });
+  } catch (err) {
+    if (err instanceof AuthorizationError || err instanceof ValidationError) throw err;
+    console.error("[Repository] Database error in archiveListing:", err);
+    throw new DatabaseUnavailableError("Unable to archive listing. Database service is unavailable.");
+  }
+}
+
+/**
+ * Retrieves a listing by ID, enforcing private listing view authorization.
+ */
+export async function getListingById(
+  listingId: string,
+  requesterUserId?: string,
+  requesterRole?: Role
+): Promise<Listing | undefined> {
+  try {
+    const listing = await prisma.listing.findUnique({
+      where: { id: listingId },
+      include: {
+        category: true,
+        location: true,
+        seller: { include: { profile: true } },
+        images: { orderBy: { sortOrder: "asc" } },
+        promotions: true,
+      },
+    });
+
+    if (!listing) return undefined;
+
+    // Visibility check: non-published listings only visible to owner or staff
+    if (listing.status !== ListingStatus.PUBLISHED) {
+      const isOwner = requesterUserId && listing.sellerId === requesterUserId;
+      const isStaff = requesterRole === Role.ADMIN || requesterRole === Role.MODERATOR;
+      if (!isOwner && !isStaff) {
+        return undefined;
+      }
+    }
+
+    const domain = mapPrismaListingToDomain(listing);
+    if (requesterUserId) {
+      const fav = await prisma.favorite.findUnique({
+        where: { userId_listingId: { userId: requesterUserId, listingId: listing.id } },
+      });
+      domain.isFavorited = Boolean(fav);
+    }
+    return domain;
+  } catch {
+    const demo = DEMO_LISTINGS.find((l) => l.id === listingId);
+    return demo;
   }
 }
 
@@ -493,7 +691,11 @@ export async function getFeaturedListings(limit = 8): Promise<Listing[]> {
   return DEMO_LISTINGS.slice(0, limit);
 }
 
-export async function getListingBySlug(slug: string): Promise<Listing | undefined> {
+export async function getListingBySlug(
+  slug: string,
+  requesterUserId?: string,
+  requesterRole?: Role
+): Promise<Listing | undefined> {
   try {
     const listing = await prisma.listing.findUnique({
       where: { slug },
@@ -501,13 +703,45 @@ export async function getListingBySlug(slug: string): Promise<Listing | undefine
         category: true,
         location: true,
         seller: { include: { profile: true } },
-        images: true,
+        images: { orderBy: { sortOrder: "asc" } },
         promotions: true,
       },
     });
 
     if (listing) {
-      return mapPrismaListingToDomain(listing);
+      // Visibility guard: non-published listings only visible to owner or staff
+      if (listing.status !== ListingStatus.PUBLISHED) {
+        const isOwner = requesterUserId && listing.sellerId === requesterUserId;
+        const isStaff = requesterRole === Role.ADMIN || requesterRole === Role.MODERATOR;
+        if (!isOwner && !isStaff) {
+          return undefined;
+        }
+      }
+
+      // Increment views count non-destructively for published listings
+      if (listing.status === ListingStatus.PUBLISHED) {
+        try {
+          await prisma.listing.update({
+            where: { id: listing.id },
+            data: { viewsCount: { increment: 1 } },
+          });
+        } catch {
+          // ignore view increment failures
+        }
+      }
+
+      const domain = mapPrismaListingToDomain(listing);
+      if (requesterUserId) {
+        try {
+          const fav = await prisma.favorite.findUnique({
+            where: { userId_listingId: { userId: requesterUserId, listingId: listing.id } },
+          });
+          domain.isFavorited = Boolean(fav);
+        } catch {
+          domain.isFavorited = false;
+        }
+      }
+      return domain;
     }
   } catch {
     // Fallback to explicit demo data for public preview
@@ -516,10 +750,11 @@ export async function getListingBySlug(slug: string): Promise<Listing | undefine
   return DEMO_LISTINGS.find((l) => l.slug === slug);
 }
 
-export async function searchListings(filters: SearchFilters = {}): Promise<{
-  listings: Listing[];
-  total: number;
-}> {
+export async function searchListings(filters: SearchFilters = {}): Promise<SearchResults> {
+  const page = Math.max(1, filters.page || 1);
+  const limit = Math.max(1, Math.min(50, filters.limit || 12));
+  const skip = (page - 1) * limit;
+
   try {
     const where: any = {
       status: ListingStatus.PUBLISHED,
@@ -538,6 +773,20 @@ export async function searchListings(filters: SearchFilters = {}): Promise<{
 
     if (filters.location && filters.location !== "all") {
       where.location = { slug: filters.location };
+    }
+
+    if (filters.condition) {
+      const conditionMap: Record<string, ListingCondition> = {
+        NEW_CONDITION: ListingCondition.NEW_CONDITION,
+        LIKE_NEW: ListingCondition.LIKE_NEW,
+        EXCELLENT: ListingCondition.EXCELLENT,
+        GOOD: ListingCondition.GOOD,
+        FAIR: ListingCondition.FAIR,
+        FOR_PARTS: ListingCondition.FOR_PARTS,
+      };
+      if (conditionMap[filters.condition]) {
+        where.condition = conditionMap[filters.condition];
+      }
     }
 
     if (typeof filters.minPrice === "number" || typeof filters.maxPrice === "number") {
@@ -564,10 +813,12 @@ export async function searchListings(filters: SearchFilters = {}): Promise<{
           category: true,
           location: true,
           seller: { include: { profile: true } },
-          images: true,
+          images: { orderBy: { sortOrder: "asc" } },
           promotions: true,
         },
         orderBy,
+        skip,
+        take: limit,
       }),
       prisma.listing.count({ where }),
     ]);
@@ -576,6 +827,9 @@ export async function searchListings(filters: SearchFilters = {}): Promise<{
       return {
         listings: items.map(mapPrismaListingToDomain),
         total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit) || 1,
       };
     }
   } catch {
@@ -604,6 +858,10 @@ export async function searchListings(filters: SearchFilters = {}): Promise<{
     results = results.filter((item) => item.locationSlug === filters.location);
   }
 
+  if (filters.condition) {
+    results = results.filter((item) => item.condition === filters.condition);
+  }
+
   if (filters.verifiedOnly) {
     results = results.filter((item) => item.seller.isVerified);
   }
@@ -625,8 +883,200 @@ export async function searchListings(filters: SearchFilters = {}): Promise<{
     results.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }
 
+  const total = results.length;
+  const pagedListings = results.slice(skip, skip + limit);
+
   return {
-    listings: results,
-    total: results.length,
+    listings: pagedListings,
+    total,
+    page,
+    limit,
+    totalPages: Math.ceil(total / limit) || 1,
   };
+}
+
+// =====================================================================
+// FAVORITES OPERATIONS
+// =====================================================================
+
+export async function toggleFavorite(
+  userId: string,
+  listingId: string
+): Promise<{ isFavorited: boolean }> {
+  try {
+    const listing = await prisma.listing.findUnique({ where: { id: listingId } });
+    if (!listing) throw new ValidationError("Listing not found.");
+
+    const existing = await prisma.favorite.findUnique({
+      where: { userId_listingId: { userId, listingId } },
+    });
+
+    if (existing) {
+      await prisma.favorite.delete({
+        where: { id: existing.id },
+      });
+      return { isFavorited: false };
+    } else {
+      await prisma.favorite.create({
+        data: { userId, listingId },
+      });
+      return { isFavorited: true };
+    }
+  } catch (err) {
+    if (err instanceof ValidationError) throw err;
+    console.error("[Repository] Database error in toggleFavorite:", err);
+    throw new DatabaseUnavailableError("Unable to update favorite. Database service is unavailable.");
+  }
+}
+
+export async function getUserFavorites(userId: string): Promise<Listing[]> {
+  try {
+    const favorites = await prisma.favorite.findMany({
+      where: { userId },
+      include: {
+        listing: {
+          include: {
+            category: true,
+            location: true,
+            seller: { include: { profile: true } },
+            images: { orderBy: { sortOrder: "asc" } },
+            promotions: true,
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    return favorites
+      .filter((f) => f.listing && f.listing.status === ListingStatus.PUBLISHED)
+      .map((f) => {
+        const item = mapPrismaListingToDomain(f.listing);
+        item.isFavorited = true;
+        return item;
+      });
+  } catch (err) {
+    console.error("[Repository] Database error in getUserFavorites:", err);
+    throw new DatabaseUnavailableError("Unable to retrieve saved favorites at this time.");
+  }
+}
+
+export async function isListingFavorited(
+  userId: string,
+  listingId: string
+): Promise<boolean> {
+  try {
+    const fav = await prisma.favorite.findUnique({
+      where: { userId_listingId: { userId, listingId } },
+    });
+    return Boolean(fav);
+  } catch {
+    return false;
+  }
+}
+
+// =====================================================================
+// COMMUNICATION & REPORTING OPERATIONS
+// =====================================================================
+
+export async function contactSeller(
+  senderId: string,
+  listingId: string,
+  messageText: string
+): Promise<{ conversationId: string; messageId: string }> {
+  try {
+    const listing = await prisma.listing.findUnique({
+      where: { id: listingId },
+    });
+
+    if (!listing) {
+      throw new ValidationError("Listing not found.");
+    }
+
+    if (listing.sellerId === senderId) {
+      throw new ValidationError("You cannot send a message to yourself regarding your own listing.");
+    }
+
+    let conversation = await prisma.conversation.findFirst({
+      where: {
+        listingId,
+        buyerId: senderId,
+        sellerId: listing.sellerId,
+      },
+    });
+
+    if (!conversation) {
+      conversation = await prisma.conversation.create({
+        data: {
+          listingId,
+          buyerId: senderId,
+          sellerId: listing.sellerId,
+        },
+      });
+    }
+
+    const message = await prisma.message.create({
+      data: {
+        conversationId: conversation.id,
+        senderId,
+        body: messageText,
+      },
+    });
+
+    await prisma.conversation.update({
+      where: { id: conversation.id },
+      data: { updatedAt: new Date() },
+    });
+
+    return { conversationId: conversation.id, messageId: message.id };
+  } catch (err) {
+    if (err instanceof ValidationError) throw err;
+    console.error("[Repository] Database error in contactSeller:", err);
+    throw new DatabaseUnavailableError("Unable to deliver message. Database service is unavailable.");
+  }
+}
+
+export async function reportListing(
+  reporterUserId: string,
+  listingId: string,
+  reason: string,
+  description?: string
+): Promise<{ reportId: string }> {
+  try {
+    const listing = await prisma.listing.findUnique({
+      where: { id: listingId },
+    });
+
+    if (!listing) {
+      throw new ValidationError("Listing not found.");
+    }
+
+    const existing = await prisma.report.findFirst({
+      where: {
+        reporterId: reporterUserId,
+        listingId,
+        status: ReportStatus.PENDING,
+      },
+    });
+
+    if (existing) {
+      return { reportId: existing.id };
+    }
+
+    const report = await prisma.report.create({
+      data: {
+        reporterId: reporterUserId,
+        listingId,
+        reportedUserId: listing.sellerId,
+        reason,
+        description: description || "No additional details provided.",
+        status: ReportStatus.PENDING,
+      },
+    });
+
+    return { reportId: report.id };
+  } catch (err) {
+    if (err instanceof ValidationError) throw err;
+    console.error("[Repository] Database error in reportListing:", err);
+    throw new DatabaseUnavailableError("Unable to submit report. Database service is unavailable.");
+  }
 }

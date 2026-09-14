@@ -3,11 +3,16 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getCategoryBySlug, getCategories, searchListings } from "@/lib/data/repository";
 import { ListingCard } from "@/components/listings/ListingCard";
+import { Pagination } from "@/components/ui/Pagination";
 import { ArrowLeft, Tag, Layers, PlusCircle } from "lucide-react";
 import type { Metadata } from "next";
 
 interface CategoryPageProps {
   params: Promise<{ slug: string }>;
+  searchParams: Promise<{
+    page?: string;
+    sortBy?: "newest" | "price_asc" | "price_desc" | "popular";
+  }>;
 }
 
 export async function generateMetadata({ params }: CategoryPageProps): Promise<Metadata> {
@@ -19,7 +24,7 @@ export async function generateMetadata({ params }: CategoryPageProps): Promise<M
   }
 
   return {
-    title: `${category.name} Listings & Classifieds`,
+    title: `${category.name} Listings & Classifieds | Meridian`,
     description: `Discover local verified ads for ${category.name}. ${category.description}`,
     openGraph: {
       title: `${category.name} | Meridian Marketplace`,
@@ -35,15 +40,24 @@ export async function generateStaticParams() {
   }));
 }
 
-export default async function CategoryPage({ params }: CategoryPageProps) {
+export default async function CategoryPage({ params, searchParams }: CategoryPageProps) {
   const { slug } = await params;
+  const sParams = await searchParams;
+  const page = Math.max(1, Number(sParams.page) || 1);
+  const sortBy = sParams.sortBy || "newest";
+
   const category = await getCategoryBySlug(slug);
 
   if (!category) {
     notFound();
   }
 
-  const { listings, total } = await searchListings({ category: slug });
+  const { listings, total, totalPages } = await searchListings({
+    category: slug,
+    page,
+    limit: 12,
+    sortBy,
+  });
 
   return (
     <div className="bg-slate-50 min-h-screen py-8 sm:py-12">
@@ -117,15 +131,26 @@ export default async function CategoryPage({ params }: CategoryPageProps) {
               href={`/search?category=${category.slug}`}
               className="text-xs font-semibold text-brand-600 hover:underline"
             >
-              View Filtered Results &rarr;
+              Filter in Advanced Search &rarr;
             </Link>
           </div>
 
           {listings.length > 0 ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-              {listings.map((item) => (
-                <ListingCard key={item.id} listing={item} />
-              ))}
+            <div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                {listings.map((item) => (
+                  <ListingCard key={item.id} listing={item} />
+                ))}
+              </div>
+
+              <Pagination
+                currentPage={page}
+                totalPages={totalPages}
+                basePath={`/category/${category.slug}`}
+                queryParams={{
+                  sortBy: sortBy !== "newest" ? sortBy : undefined,
+                }}
+              />
             </div>
           ) : (
             <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center shadow-subtle">

@@ -3,17 +3,20 @@ import Link from "next/link";
 import { searchListings, getCategories, getLocations } from "@/lib/data/repository";
 import { ListingCard } from "@/components/listings/ListingCard";
 import { SearchFilters } from "@/components/search/SearchFilters";
-import { Search, MapPin, Tag, ArrowLeft, SlidersHorizontal } from "lucide-react";
+import { Pagination } from "@/components/ui/Pagination";
+import { Search, MapPin, Tag, ArrowLeft, ShieldCheck } from "lucide-react";
 
 interface SearchPageProps {
   searchParams: Promise<{
     q?: string;
     category?: string;
     location?: string;
+    condition?: string;
     sortBy?: "newest" | "price_asc" | "price_desc" | "popular";
     verifiedOnly?: string;
     minPrice?: string;
     maxPrice?: string;
+    page?: string;
   }>;
 }
 
@@ -22,24 +25,31 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
   const query = params.q || "";
   const categorySlug = params.category || "all";
   const locationSlug = params.location || "all";
+  const condition = params.condition && params.condition !== "all" ? params.condition : undefined;
   const sortBy = params.sortBy || "newest";
   const verifiedOnly = params.verifiedOnly === "true";
   const minPrice = params.minPrice ? Number(params.minPrice) : undefined;
   const maxPrice = params.maxPrice ? Number(params.maxPrice) : undefined;
+  const page = Math.max(1, Number(params.page) || 1);
 
-  const [categories, locations, { listings, total }] = await Promise.all([
+  const [categories, locations, searchResult] = await Promise.all([
     getCategories(),
     getLocations(),
     searchListings({
       query,
       category: categorySlug,
       location: locationSlug,
+      condition: condition as any,
       sortBy,
       verifiedOnly,
       minPrice,
       maxPrice,
+      page,
+      limit: 12,
     }),
   ]);
+
+  const { listings, total, totalPages } = searchResult;
 
   const activeCategory = categories.find((c) => c.slug === categorySlug);
   const activeLocation = locations.find((l) => l.slug === locationSlug);
@@ -83,6 +93,11 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
                   {activeLocation.name}
                 </span>
               )}
+              {condition && (
+                <span className="px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700 font-medium">
+                  Condition: {condition.replace("_", " ")}
+                </span>
+              )}
               {verifiedOnly && (
                 <span className="px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-medium">
                   Verified Sellers Only
@@ -111,10 +126,28 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
           {/* Results Grid / Empty State */}
           <div className="lg:col-span-3">
             {listings.length > 0 ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6">
-                {listings.map((item) => (
-                  <ListingCard key={item.id} listing={item} />
-                ))}
+              <div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6">
+                  {listings.map((item) => (
+                    <ListingCard key={item.id} listing={item} />
+                  ))}
+                </div>
+
+                <Pagination
+                  currentPage={page}
+                  totalPages={totalPages}
+                  basePath="/search"
+                  queryParams={{
+                    q: query || undefined,
+                    category: categorySlug !== "all" ? categorySlug : undefined,
+                    location: locationSlug !== "all" ? locationSlug : undefined,
+                    condition,
+                    sortBy: sortBy !== "newest" ? sortBy : undefined,
+                    verifiedOnly: verifiedOnly ? "true" : undefined,
+                    minPrice,
+                    maxPrice,
+                  }}
+                />
               </div>
             ) : (
               <div className="bg-white rounded-2xl border border-slate-200 p-8 sm:p-12 text-center shadow-subtle">

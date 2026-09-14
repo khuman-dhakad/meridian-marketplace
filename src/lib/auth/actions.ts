@@ -5,8 +5,13 @@ import { revalidatePath } from "next/cache";
 import { registerSchema, loginSchema } from "../validations/auth";
 import {
   createListingSchema,
+  editListingSchema,
   moderateListingSchema,
   deleteListingSchema,
+  archiveListingSchema,
+  favoriteSchema,
+  reportListingSchema,
+  contactSellerSchema,
 } from "../validations/listing";
 import { hashPassword, verifyPassword } from "./password";
 import {
@@ -20,8 +25,13 @@ import {
   getUserByEmail,
   createUser,
   createListing as repoCreateListing,
+  updateListing as repoUpdateListing,
+  archiveListing as repoArchiveListing,
   moderateListing,
   deleteListing,
+  toggleFavorite,
+  contactSeller,
+  reportListing,
 } from "../data/repository";
 import { prisma } from "../db/prisma";
 import { Role } from "@prisma/client";
@@ -30,6 +40,8 @@ export interface ActionResponse {
   success?: boolean;
   error?: string;
   fieldErrors?: Record<string, string[]>;
+  isFavorited?: boolean;
+  listingSlug?: string;
 }
 
 /**
@@ -187,19 +199,37 @@ export async function createListingAction(
     return { error: "You must be signed in to publish a classified listing." };
   }
 
-  // 2. Parse form fields
+  // 2. Parse images from multi-value or delimited inputs
+  let images: string[] = [];
+  const rawImagesList = formData.getAll("images");
+  if (rawImagesList.length > 0) {
+    images = rawImagesList
+      .map(String)
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+  }
+  if (images.length === 0 && formData.get("images")) {
+    images = String(formData.get("images"))
+      .split(/[\n,]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+
+  // 3. Parse form fields
   const rawData = {
     title: formData.get("title"),
     description: formData.get("description"),
     price: formData.get("price"),
     priceType: formData.get("priceType") || "fixed",
+    condition: formData.get("condition") || "GOOD",
     categorySlug: formData.get("categorySlug"),
     locationSlug: formData.get("locationSlug"),
     isNegotiable: formData.get("isNegotiable") === "on" || formData.get("isNegotiable") === "true",
     contactPhone: formData.get("contactPhone") || undefined,
+    images: images.length > 0 ? images : undefined,
   };
 
-  // 3. Validate server-side with Zod
+  // 4. Validate server-side with Zod
   const validation = createListingSchema.safeParse(rawData);
   if (!validation.success) {
     const fieldErrors: Record<string, string[]> = {};
@@ -214,12 +244,15 @@ export async function createListingAction(
     };
   }
 
-  // 4. Persist to database via repository
+  // 5. Persist to database via repository
   try {
     const listing = await repoCreateListing(validation.data, session.id);
+    revalidatePath("/dashboard");
+    revalidatePath("/search");
     return {
       success: true,
       error: undefined,
+      listingSlug: listing.slug,
     };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Unable to save listing.";
@@ -328,4 +361,230 @@ export async function handleModerateListingAction(formData: FormData): Promise<v
  */
 export async function handleDeleteListingAction(formData: FormData): Promise<void> {
   await deleteListingAction(null, formData);
+}
+
+/**
+ * Server Action for Updating an Existing Classified Listing.
+ * Enforces server-side ownership or ADMIN role authorization.
+ * Fails closed if PostgreSQL is unreachable.
+ */
+export async function updateListingAction(
+  prevState: ActionResponse | null,
+  formData: FormData
+): Promise<ActionResponse> {
+  let session;
+  try {
+    session = await requireAuth();
+  } catch {
+    return { error: "Authentication required to edit a listing." };
+  }
+
+  const listingId = formData.get("listingId") as string;
+  if (!listingId) {
+    return { error: "Listing ID is required." };
+  }
+
+  let images: string[] = [];
+  const rawImagesList = formData.getAll("images");
+  if (rawImagesList.length > 0) {
+    images = rawImagesList
+      .map(String)
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+  }
+  if (images.length === 0 && formData.get("images")) {
+    images = String(formData.get("images"))
+      .split(/[\n,]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+
+  const rawData = {
+    title: formData.get("title"),
+    description: formData.get("description"),
+    price: formData.get("price"),
+    priceType: formData.get("priceType") || "fixed",
+    condition: formData.get("condition") || "GOOD",
+    categorySlug: formData.get("categorySlug"),
+    locationSlug: formData.get("locationSlug"),
+    isNegotiable: formData.get("isNegotiable") === "on" || formData.get("isNegotiable") === "true",
+    contactPhone: formData.get("contactPhone") || undefined,
+    images: images.length > 0 ? images : undefined,
+  };
+
+  const validation = editListingSchema.safeParse(rawData);
+  if (!validation.success) {
+    const fieldErrors: Record<string, string[]> = {};
+    validation.error.errors.forEach((err) => {
+      const field = err.path[0] as string;
+      if (!fieldErrors[field]) fieldErrors[field] = [];
+      fieldErrors[field].push(err.message);
+    });
+    return {
+      error: "Please complete all required fields correctly.",
+      fieldErrors,
+    };
+  }
+
+  try {
+    const updated = await repoUpdateListing(listingId, validation.data, session.id, session.role);
+    revalidatePath("/dashboard");
+    revalidatePath(`/listing/${updated.slug}`);
+    revalidatePath("/search");
+    return { success: true, listingSlug: updated.slug };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "Failed to update listing.";
+    return { error: msg };
+  }
+}
+
+/**
+ * Server Action for Archiving a Listing (Soft Deletion).
+ * Enforces server-side ownership or ADMIN role authorization.
+ * Fails closed if PostgreSQL is unreachable.
+ */
+export async function archiveListingAction(
+  prevState: ActionResponse | null,
+  formData: FormData
+): Promise<ActionResponse> {
+  let session;
+  try {
+    session = await requireAuth();
+  } catch {
+    return { error: "Authentication required to archive a listing." };
+  }
+
+  const listingId = formData.get("listingId") as string;
+  const validation = archiveListingSchema.safeParse({ listingId });
+  if (!validation.success) {
+    return { error: "Invalid listing ID." };
+  }
+
+  try {
+    await repoArchiveListing(validation.data.listingId, session.id, session.role);
+    revalidatePath("/dashboard");
+    revalidatePath("/admin");
+    revalidatePath("/search");
+    return { success: true };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "Failed to archive listing.";
+    return { error: msg };
+  }
+}
+
+export async function handleArchiveListingAction(formData: FormData): Promise<void> {
+  await archiveListingAction(null, formData);
+}
+
+/**
+ * Server Action for Toggling Favorite on a Listing.
+ * Requires authenticated user session.
+ * Fails closed if PostgreSQL is unreachable.
+ */
+export async function toggleFavoriteAction(
+  prevState: ActionResponse | null,
+  formData: FormData
+): Promise<ActionResponse> {
+  let session;
+  try {
+    session = await requireAuth();
+  } catch {
+    return { error: "Authentication required to save favorites." };
+  }
+
+  const listingId = formData.get("listingId") as string;
+  const validation = favoriteSchema.safeParse({ listingId });
+  if (!validation.success) {
+    return { error: "Invalid listing ID." };
+  }
+
+  try {
+    const res = await toggleFavorite(session.id, validation.data.listingId);
+    revalidatePath("/dashboard");
+    return { success: true, isFavorited: res.isFavorited };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "Failed to update favorite.";
+    return { error: msg };
+  }
+}
+
+export async function handleToggleFavoriteAction(formData: FormData): Promise<void> {
+  await toggleFavoriteAction(null, formData);
+}
+
+/**
+ * Server Action for Contacting a Seller.
+ * Creates a conversation and message record post-authorization.
+ * Prevents messaging oneself.
+ * Fails closed if PostgreSQL is unreachable.
+ */
+export async function contactSellerAction(
+  prevState: ActionResponse | null,
+  formData: FormData
+): Promise<ActionResponse> {
+  let session;
+  try {
+    session = await requireAuth();
+  } catch {
+    return { error: "You must be signed in to send a message to the seller." };
+  }
+
+  const rawData = {
+    listingId: formData.get("listingId"),
+    message: formData.get("message"),
+  };
+
+  const validation = contactSellerSchema.safeParse(rawData);
+  if (!validation.success) {
+    return { error: validation.error.errors[0]?.message || "Invalid message content." };
+  }
+
+  try {
+    await contactSeller(session.id, validation.data.listingId, validation.data.message);
+    return { success: true };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "Failed to deliver message.";
+    return { error: msg };
+  }
+}
+
+/**
+ * Server Action for Reporting a Listing.
+ * Submits a report record with predefined reason and duplicate suppression.
+ * Fails closed if PostgreSQL is unreachable.
+ */
+export async function reportListingAction(
+  prevState: ActionResponse | null,
+  formData: FormData
+): Promise<ActionResponse> {
+  let session;
+  try {
+    session = await requireAuth();
+  } catch {
+    return { error: "You must be signed in to report a listing." };
+  }
+
+  const rawData = {
+    listingId: formData.get("listingId"),
+    reason: formData.get("reason"),
+    description: formData.get("description") || undefined,
+  };
+
+  const validation = reportListingSchema.safeParse(rawData);
+  if (!validation.success) {
+    return { error: validation.error.errors[0]?.message || "Invalid report data." };
+  }
+
+  try {
+    await reportListing(
+      session.id,
+      validation.data.listingId,
+      validation.data.reason,
+      validation.data.description
+    );
+    return { success: true };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "Failed to submit report.";
+    return { error: msg };
+  }
 }

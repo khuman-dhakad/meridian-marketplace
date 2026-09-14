@@ -3,11 +3,16 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getLocationBySlug, getLocations, searchListings } from "@/lib/data/repository";
 import { ListingCard } from "@/components/listings/ListingCard";
+import { Pagination } from "@/components/ui/Pagination";
 import { ArrowLeft, MapPin, Building2, PlusCircle } from "lucide-react";
 import type { Metadata } from "next";
 
 interface LocationPageProps {
   params: Promise<{ slug: string }>;
+  searchParams: Promise<{
+    page?: string;
+    sortBy?: "newest" | "price_asc" | "price_desc" | "popular";
+  }>;
 }
 
 export async function generateMetadata({ params }: LocationPageProps): Promise<Metadata> {
@@ -19,7 +24,7 @@ export async function generateMetadata({ params }: LocationPageProps): Promise<M
   }
 
   return {
-    title: `${location.name} Classifieds & Local Listings`,
+    title: `${location.name} Classifieds & Local Listings | Meridian`,
     description: `Discover verified local classifieds and services in ${location.name} (${location.state}).`,
     openGraph: {
       title: `${location.name} | Meridian Marketplace`,
@@ -35,15 +40,24 @@ export async function generateStaticParams() {
   }));
 }
 
-export default async function LocationPage({ params }: LocationPageProps) {
+export default async function LocationPage({ params, searchParams }: LocationPageProps) {
   const { slug } = await params;
+  const sParams = await searchParams;
+  const page = Math.max(1, Number(sParams.page) || 1);
+  const sortBy = sParams.sortBy || "newest";
+
   const location = await getLocationBySlug(slug);
 
   if (!location) {
     notFound();
   }
 
-  const { listings, total } = await searchListings({ location: slug });
+  const { listings, total, totalPages } = await searchListings({
+    location: slug,
+    page,
+    limit: 12,
+    sortBy,
+  });
 
   return (
     <div className="bg-slate-50 min-h-screen py-8 sm:py-12">
@@ -118,15 +132,26 @@ export default async function LocationPage({ params }: LocationPageProps) {
               href={`/search?location=${location.slug}`}
               className="text-xs font-semibold text-brand-600 hover:underline"
             >
-              Filter Regional Listings &rarr;
+              Filter in Advanced Search &rarr;
             </Link>
           </div>
 
           {listings.length > 0 ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-              {listings.map((item) => (
-                <ListingCard key={item.id} listing={item} />
-              ))}
+            <div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                {listings.map((item) => (
+                  <ListingCard key={item.id} listing={item} />
+                ))}
+              </div>
+
+              <Pagination
+                currentPage={page}
+                totalPages={totalPages}
+                basePath={`/location/${location.slug}`}
+                queryParams={{
+                  sortBy: sortBy !== "newest" ? sortBy : undefined,
+                }}
+              />
             </div>
           ) : (
             <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center shadow-subtle">
