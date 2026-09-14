@@ -1,5 +1,6 @@
 import React from "react";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import {
   ShieldAlert,
   ShieldCheck,
@@ -9,9 +10,50 @@ import {
   Users,
   Layers,
   ArrowLeft,
+  Trash2,
 } from "lucide-react";
+import { getSession } from "@/lib/auth/session";
+import {
+  handleModerateListingAction,
+  handleDeleteListingAction,
+} from "@/lib/auth/actions";
+import { Role } from "@prisma/client";
 
-export default function AdminPage() {
+export default async function AdminPage() {
+  // 1. Server-side session authentication guard
+  const session = await getSession();
+  if (!session) {
+    redirect("/login?callbackUrl=/admin");
+  }
+
+  // 2. Server-side role authorization guard (reject USER and BUSINESS accounts)
+  if (session.role !== Role.ADMIN && session.role !== Role.MODERATOR) {
+    return (
+      <div className="bg-slate-50 min-h-screen py-16 flex items-center justify-center px-4">
+        <div className="max-w-md w-full bg-white rounded-3xl p-8 border border-slate-200/90 shadow-subtle text-center space-y-4">
+          <div className="w-14 h-14 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center mx-auto">
+            <ShieldAlert className="w-7 h-7" />
+          </div>
+          <h1 className="text-xl font-extrabold text-slate-900 tracking-tight">
+            403 — Access Restricted
+          </h1>
+          <p className="text-xs text-slate-600 leading-relaxed">
+            Your account (<strong className="text-slate-800">{session.email}</strong> with role{" "}
+            <span className="font-semibold text-rose-600">{session.role}</span>) does not have permission to access the Meridian Trust &amp; Safety Control Desk.
+          </p>
+          <div className="pt-2">
+            <Link
+              href="/dashboard"
+              className="inline-flex items-center justify-center px-4 py-2.5 rounded-xl bg-brand-600 text-white text-xs font-semibold hover:bg-brand-700 transition-colors"
+            >
+              Return to Dashboard
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const pendingModerations = [
     {
       id: "mod-101",
@@ -61,8 +103,11 @@ export default function AdminPage() {
           </div>
 
           <div className="flex items-center gap-3">
+            <span className="px-3 py-1.5 rounded-lg bg-slate-800 text-slate-200 border border-slate-700 text-xs font-semibold">
+              Authenticated: {session.email} ({session.role})
+            </span>
             <span className="px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-xs font-semibold">
-              Live Auditing Active
+              {session.role === Role.ADMIN ? "Full Admin Active" : "Staff Moderation Active"}
             </span>
           </div>
         </div>
@@ -146,27 +191,51 @@ export default function AdminPage() {
                   <span>Flag Reason: {item.flagReason}</span>
                 </div>
 
-                <div className="flex items-center justify-end gap-2 pt-2">
-                  <button
-                    type="button"
+                <div className="flex items-center justify-end gap-2 pt-2 flex-wrap">
+                  <Link
+                    href={`/search?q=${encodeURIComponent(item.title)}`}
                     className="px-3.5 py-2 rounded-lg border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-100 transition-colors inline-flex items-center gap-1.5"
                   >
                     Inspect Details
-                  </button>
-                  <button
-                    type="button"
-                    className="px-3.5 py-2 rounded-lg bg-rose-50 text-rose-700 hover:bg-rose-100 text-xs font-semibold transition-colors inline-flex items-center gap-1.5"
-                  >
-                    <XCircle className="w-3.5 h-3.5" />
-                    Reject Ad
-                  </button>
-                  <button
-                    type="button"
-                    className="px-3.5 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 text-xs font-semibold transition-colors inline-flex items-center gap-1.5 shadow-xs"
-                  >
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    Approve &amp; Publish
-                  </button>
+                  </Link>
+
+                  <form action={handleModerateListingAction} className="inline">
+                    <input type="hidden" name="listingId" value={item.id} />
+                    <input type="hidden" name="decision" value="REJECT" />
+                    <button
+                      type="submit"
+                      className="px-3.5 py-2 rounded-lg bg-rose-50 text-rose-700 hover:bg-rose-100 text-xs font-semibold transition-colors inline-flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <XCircle className="w-3.5 h-3.5" />
+                      Reject Ad
+                    </button>
+                  </form>
+
+                  <form action={handleModerateListingAction} className="inline">
+                    <input type="hidden" name="listingId" value={item.id} />
+                    <input type="hidden" name="decision" value="APPROVE" />
+                    <button
+                      type="submit"
+                      className="px-3.5 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 text-xs font-semibold transition-colors inline-flex items-center gap-1.5 shadow-xs cursor-pointer"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      Approve &amp; Publish
+                    </button>
+                  </form>
+
+                  {session.role === Role.ADMIN && (
+                    <form action={handleDeleteListingAction} className="inline">
+                      <input type="hidden" name="listingId" value={item.id} />
+                      <button
+                        type="submit"
+                        className="px-3.5 py-2 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 text-xs font-semibold transition-colors inline-flex items-center gap-1.5 cursor-pointer"
+                        title="Admin-only permanent deletion"
+                      >
+                        <Trash2 className="w-3.5 h-3.5 text-slate-500" />
+                        Delete (Admin)
+                      </button>
+                    </form>
+                  )}
                 </div>
               </div>
             ))}

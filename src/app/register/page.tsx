@@ -1,24 +1,19 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useActionState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Mail, Lock, User, Building, ShieldCheck } from "lucide-react";
+import { ArrowLeft, Mail, Lock, User, Building, ShieldCheck, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { registerAction, ActionResponse } from "@/lib/auth/actions";
 
 export default function RegisterPage() {
   const [accountType, setAccountType] = useState<"personal" | "business">("personal");
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    setStatusMessage(
-      "Frontend Scaffold: Registration service ready for database integration. User account creation scaffold validated."
-    );
-  };
+  const [state, formAction, isPending] = useActionState<ActionResponse | null, FormData>(
+    registerAction,
+    null
+  );
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
@@ -50,6 +45,17 @@ export default function RegisterPage() {
 
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
         <div className="bg-white py-8 px-4 shadow-subtle border border-slate-200/90 sm:rounded-2xl sm:px-10">
+          {/* Top Error Alert */}
+          {state?.error && (
+            <div
+              className="mb-6 p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-800 font-medium flex items-start gap-2"
+              role="alert"
+            >
+              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+              <span>{state.error}</span>
+            </div>
+          )}
+
           {/* Account Type Toggle */}
           <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 rounded-xl mb-6">
             <button
@@ -78,44 +84,55 @@ export default function RegisterPage() {
             </button>
           </div>
 
-          {statusMessage && (
-            <div className="mb-6 p-3.5 rounded-xl bg-brand-50 border border-brand-200 text-xs text-brand-800 font-medium">
-              {statusMessage}
-            </div>
-          )}
+          <form className="space-y-4" action={formAction}>
+            <input type="hidden" name="accountType" value={accountType} />
 
-          <form className="space-y-4" onSubmit={handleSubmit}>
             <Input
-              label={accountType === "personal" ? "Full Name" : "Business / Dealership Name"}
+              label={accountType === "personal" ? "Full Name" : "Contact Representative Name"}
+              name="name"
               type="text"
-              placeholder={accountType === "personal" ? "Jane Doe" : "Apex Motors LLC"}
-              value={name}
-              onChange={(e) => setName(e.target.value)}
+              placeholder={accountType === "personal" ? "Jane Doe" : "Alex Miller"}
               required
+              autoComplete="name"
+              error={state?.fieldErrors?.name?.[0]}
               icon={<User className="w-4 h-4" />}
             />
 
+            {accountType === "business" && (
+              <Input
+                label="Business / Dealership Name"
+                name="businessName"
+                type="text"
+                placeholder="e.g. Apex Motors LLC"
+                required
+                error={state?.fieldErrors?.businessName?.[0]}
+                icon={<Building className="w-4 h-4" />}
+              />
+            )}
+
             <Input
               label="Work or Personal Email"
+              name="email"
               type="email"
               placeholder="you@example.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
               required
+              autoComplete="email"
+              error={state?.fieldErrors?.email?.[0]}
               icon={<Mail className="w-4 h-4" />}
             />
 
             <Input
               label="Create Strong Password"
+              name="password"
               type="password"
-              placeholder="Minimum 8 characters"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Minimum 8 characters (letters & numbers)"
               required
+              autoComplete="new-password"
+              error={state?.fieldErrors?.password?.[0]}
               icon={<Lock className="w-4 h-4" />}
             />
 
-            <div className="text-xs text-slate-500 space-y-2">
+            <div className="text-xs text-slate-500 space-y-2 pt-1">
               <label className="flex items-start gap-2 cursor-pointer">
                 <input
                   type="checkbox"
@@ -128,8 +145,14 @@ export default function RegisterPage() {
               </label>
             </div>
 
-            <Button type="submit" variant="primary" size="lg" className="w-full mt-2">
-              Create Account
+            <Button
+              type="submit"
+              variant="primary"
+              size="lg"
+              className="w-full mt-2"
+              isLoading={isPending}
+            >
+              {isPending ? "Creating Account..." : "Create Account"}
             </Button>
           </form>
 

@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { Header } from "@/components/layout/Header";
 import { Footer } from "@/components/layout/Footer";
+import { getSession } from "@/lib/auth/session";
 
 export const metadata: Metadata = {
   title: {
@@ -48,15 +49,17 @@ export const viewport: Viewport = {
   maximumScale: 5,
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const sessionUser = await getSession();
+
   return (
     <html lang="en" className="scroll-smooth">
       <body className="min-h-screen flex flex-col bg-slate-50 text-slate-900 antialiased overflow-x-hidden">
-        <Header />
+        <Header initialUser={sessionUser} />
         <main className="flex-1">{children}</main>
         <Footer />
       </body>

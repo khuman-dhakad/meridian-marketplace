@@ -1,23 +1,21 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useActionState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Lock, Mail, ShieldCheck } from "lucide-react";
+import { useSearchParams } from "next/navigation";
+import { ArrowLeft, Lock, Mail, ShieldCheck, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { loginAction, ActionResponse } from "@/lib/auth/actions";
 
 export default function LoginPage() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const searchParams = useSearchParams();
+  const callbackUrl = searchParams.get("callbackUrl") || "/dashboard";
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    // Architectural notice: Ready for NextAuth / Auth0 / Supabase / Custom JWT backend integration
-    setStatusMessage(
-      "Frontend Scaffold: Authentication backend integration will connect here. No credentials transmitted."
-    );
-  };
+  const [state, formAction, isPending] = useActionState<ActionResponse | null, FormData>(
+    loginAction,
+    null
+  );
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
@@ -49,30 +47,37 @@ export default function LoginPage() {
 
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
         <div className="bg-white py-8 px-4 shadow-subtle border border-slate-200/90 sm:rounded-2xl sm:px-10">
-          {statusMessage && (
-            <div className="mb-6 p-3.5 rounded-xl bg-brand-50 border border-brand-200 text-xs text-brand-800 font-medium">
-              {statusMessage}
+          {/* Error Banner */}
+          {state?.error && (
+            <div
+              className="mb-6 p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-800 font-medium flex items-start gap-2"
+              role="alert"
+            >
+              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+              <span>{state.error}</span>
             </div>
           )}
 
-          <form className="space-y-5" onSubmit={handleSubmit}>
+          <form className="space-y-5" action={formAction}>
+            <input type="hidden" name="callbackUrl" value={callbackUrl} />
+
             <Input
               label="Email Address"
+              name="email"
               type="email"
               placeholder="you@example.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
               required
+              autoComplete="email"
               icon={<Mail className="w-4 h-4" />}
             />
 
             <Input
               label="Password"
+              name="password"
               type="password"
               placeholder="••••••••"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
               required
+              autoComplete="current-password"
               icon={<Lock className="w-4 h-4" />}
             />
 
@@ -90,26 +95,24 @@ export default function LoginPage() {
               </div>
 
               <div className="text-xs">
-                <button
-                  type="button"
-                  onClick={() =>
-                    setStatusMessage(
-                      "Password reset service endpoint configured for production deployment."
-                    )
-                  }
-                  className="font-semibold text-brand-600 hover:text-brand-500"
-                >
+                <span className="font-semibold text-brand-600 hover:text-brand-500 cursor-pointer">
                   Forgot password?
-                </button>
+                </span>
               </div>
             </div>
 
-            <Button type="submit" variant="primary" size="lg" className="w-full">
-              Sign In
+            <Button
+              type="submit"
+              variant="primary"
+              size="lg"
+              className="w-full"
+              isLoading={isPending}
+            >
+              {isPending ? "Authenticating..." : "Sign In"}
             </Button>
           </form>
 
-          {/* Social Login Scaffold (Strictly labeled as integration point) */}
+          {/* Social Login Scaffold (Clearly labeled future boundary) */}
           <div className="mt-6">
             <div className="relative">
               <div className="absolute inset-0 flex items-center">
@@ -125,21 +128,17 @@ export default function LoginPage() {
             <div className="mt-4 grid grid-cols-2 gap-3">
               <button
                 type="button"
-                onClick={() =>
-                  setStatusMessage("OAuth Google provider endpoint configured for authentication phase.")
-                }
-                className="w-full flex items-center justify-center gap-2 px-3 py-2 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
+                className="w-full flex items-center justify-center gap-2 px-3 py-2 border border-slate-200 rounded-lg text-xs font-semibold text-slate-500 bg-slate-50/50 cursor-not-allowed"
+                disabled
               >
-                <span>Google Account</span>
+                <span>Google (Upcoming)</span>
               </button>
               <button
                 type="button"
-                onClick={() =>
-                  setStatusMessage("OAuth Apple provider endpoint configured for authentication phase.")
-                }
-                className="w-full flex items-center justify-center gap-2 px-3 py-2 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
+                className="w-full flex items-center justify-center gap-2 px-3 py-2 border border-slate-200 rounded-lg text-xs font-semibold text-slate-500 bg-slate-50/50 cursor-not-allowed"
+                disabled
               >
-                <span>Apple ID</span>
+                <span>Apple ID (Upcoming)</span>
               </button>
             </div>
           </div>
