@@ -27,10 +27,12 @@ export default function PostAdPage() {
   const [title, setTitle] = useState("");
   const [price, setPrice] = useState("");
   const [priceType, setPriceType] = useState<"fixed" | "hourly" | "free">("fixed");
+  const [condition, setCondition] = useState("GOOD");
   const [location, setLocation] = useState(LOCATIONS[0].slug);
   const [description, setDescription] = useState("");
   const [contactPhone, setContactPhone] = useState("");
   const [isNegotiable, setIsNegotiable] = useState(true);
+  const [imageUrls, setImageUrls] = useState<string[]>([""]);
 
   const [state, formAction, isPending] = useActionState<ActionResponse | null, FormData>(
     createListingAction,
@@ -38,6 +40,24 @@ export default function PostAdPage() {
   );
 
   const selectedCatObj = CATEGORIES.find((c) => c.slug === category);
+
+  const handleAddImageUrl = () => {
+    if (imageUrls.length < 8) {
+      setImageUrls([...imageUrls, ""]);
+    }
+  };
+
+  const handleRemoveImageUrl = (index: number) => {
+    setImageUrls(imageUrls.filter((_, idx) => idx !== index));
+  };
+
+  const handleImageUrlChange = (index: number, val: string) => {
+    const updated = [...imageUrls];
+    updated[index] = val;
+    setImageUrls(updated);
+  };
+
+  const validImages = imageUrls.map((s) => s.trim()).filter(Boolean);
 
   return (
     <div className="bg-slate-50 min-h-screen py-8 sm:py-12">
@@ -99,7 +119,7 @@ export default function PostAdPage() {
                 >
                   3
                 </span>
-                <span className={currentStep === 3 ? "font-bold text-white" : ""}>Review</span>
+                <span className={currentStep === 3 ? "font-bold text-white" : ""}>Media &amp; Review</span>
               </div>
             </div>
           </div>
@@ -131,7 +151,15 @@ export default function PostAdPage() {
                 <p className="text-sm text-slate-600 max-w-md mx-auto">
                   Thank you for posting with Meridian. Your listing &quot;{title}&quot; has been recorded in the database and associated with your account.
                 </p>
-                <div className="pt-4 flex justify-center gap-3">
+                <div className="pt-4 flex flex-wrap justify-center gap-3">
+                  {state.listingSlug && (
+                    <Link
+                      href={`/listing/${state.listingSlug}`}
+                      className="px-5 py-2.5 rounded-xl bg-brand-600 text-white text-xs font-semibold hover:bg-brand-700 transition-colors shadow-sm"
+                    >
+                      View Published Listing &rarr;
+                    </Link>
+                  )}
                   <Link
                     href="/dashboard"
                     className="px-5 py-2.5 rounded-xl bg-slate-900 text-white text-xs font-semibold hover:bg-slate-800 transition-colors"
@@ -154,9 +182,13 @@ export default function PostAdPage() {
                 <input type="hidden" name="description" value={description} />
                 <input type="hidden" name="price" value={price} />
                 <input type="hidden" name="priceType" value={priceType} />
+                <input type="hidden" name="condition" value={condition} />
                 <input type="hidden" name="locationSlug" value={location} />
                 <input type="hidden" name="contactPhone" value={contactPhone} />
                 <input type="hidden" name="isNegotiable" value={String(isNegotiable)} />
+                {validImages.map((url, idx) => (
+                  <input key={`img-hidden-${idx}`} type="hidden" name="images" value={url} />
+                ))}
 
                 {/* Step 1: Category & Details */}
                 {currentStep === 1 && (
@@ -170,7 +202,7 @@ export default function PostAdPage() {
                       <select
                         value={category}
                         onChange={(e) => setCategory(e.target.value)}
-                        className="w-full text-sm font-medium rounded-lg border border-slate-300 py-2.5 px-3.5 bg-white focus:outline-none focus:border-brand-600 focus:ring-2 focus:ring-brand-600/20"
+                        className="w-full text-sm font-medium rounded-lg border border-slate-300 py-2.5 px-3.5 bg-white focus:outline-hidden focus:border-brand-600 focus:ring-2 focus:ring-brand-600/20"
                       >
                         {CATEGORIES.map((c) => (
                           <option key={c.id} value={c.slug}>
@@ -192,6 +224,24 @@ export default function PostAdPage() {
 
                     <div>
                       <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                        Item Condition
+                      </label>
+                      <select
+                        value={condition}
+                        onChange={(e) => setCondition(e.target.value)}
+                        className="w-full text-sm font-medium rounded-lg border border-slate-300 py-2.5 px-3.5 bg-white focus:outline-hidden focus:border-brand-600"
+                      >
+                        <option value="NEW_CONDITION">Brand New (Unopened / In original box)</option>
+                        <option value="LIKE_NEW">Like New (Mint condition, lightly used)</option>
+                        <option value="EXCELLENT">Excellent (Minimal signs of wear)</option>
+                        <option value="GOOD">Good (Normal wear, fully functional)</option>
+                        <option value="FAIR">Fair (Visible wear, works as intended)</option>
+                        <option value="FOR_PARTS">For Parts / Not Working</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
                         Detailed Description
                       </label>
                       <textarea
@@ -200,7 +250,7 @@ export default function PostAdPage() {
                         value={description}
                         onChange={(e) => setDescription(e.target.value)}
                         required
-                        className="w-full text-sm rounded-lg border border-slate-300 p-3 bg-white focus:outline-none focus:border-brand-600 focus:ring-2 focus:ring-brand-600/20"
+                        className="w-full text-sm rounded-lg border border-slate-300 p-3 bg-white focus:outline-hidden focus:border-brand-600 focus:ring-2 focus:ring-brand-600/20"
                       />
                       {state?.fieldErrors?.description?.[0] && (
                         <p className="text-xs text-rose-600 mt-1">
@@ -247,7 +297,7 @@ export default function PostAdPage() {
                         <select
                           value={priceType}
                           onChange={(e) => setPriceType(e.target.value as "fixed" | "hourly" | "free")}
-                          className="w-full text-sm font-medium rounded-lg border border-slate-300 py-2.5 px-3.5 bg-white focus:outline-none focus:border-brand-600"
+                          className="w-full text-sm font-medium rounded-lg border border-slate-300 py-2.5 px-3.5 bg-white focus:outline-hidden focus:border-brand-600"
                         >
                           <option value="fixed">Fixed Price</option>
                           <option value="hourly">Hourly Rate (Services)</option>
@@ -263,7 +313,7 @@ export default function PostAdPage() {
                       <select
                         value={location}
                         onChange={(e) => setLocation(e.target.value)}
-                        className="w-full text-sm font-medium rounded-lg border border-slate-300 py-2.5 px-3.5 bg-white focus:outline-none focus:border-brand-600"
+                        className="w-full text-sm font-medium rounded-lg border border-slate-300 py-2.5 px-3.5 bg-white focus:outline-hidden focus:border-brand-600"
                       >
                         {LOCATIONS.map((l) => (
                           <option key={l.id} value={l.slug}>
@@ -307,22 +357,69 @@ export default function PostAdPage() {
                         variant="primary"
                         onClick={() => setCurrentStep(3)}
                       >
-                        Review Listing &rarr;
+                        Media &amp; Review &rarr;
                       </Button>
                     </div>
                   </div>
                 )}
 
-                {/* Step 3: Review & Submit */}
+                {/* Step 3: Media & Review */}
                 {currentStep === 3 && (
                   <div className="space-y-6 animate-in fade-in duration-150">
-                    <h2 className="text-lg font-bold text-slate-900">Step 3: Review &amp; Publish</h2>
+                    <h2 className="text-lg font-bold text-slate-900">Step 3: Media &amp; Publish</h2>
+
+                    {/* Image URL Manager (up to 8 images) */}
+                    <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h3 className="text-sm font-bold text-slate-900">Listing Photos</h3>
+                          <p className="text-xs text-slate-500 mt-0.5">
+                            Add up to 8 photo URLs for your listing.
+                          </p>
+                        </div>
+                        {imageUrls.length < 8 && (
+                          <button
+                            type="button"
+                            onClick={handleAddImageUrl}
+                            className="text-xs font-semibold text-brand-600 hover:text-brand-700 bg-brand-50 px-3 py-1.5 rounded-lg transition-colors"
+                          >
+                            + Add Photo URL
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="space-y-2">
+                        {imageUrls.map((url, idx) => (
+                          <div key={`img-input-${idx}`} className="flex items-center gap-2">
+                            <Input
+                              placeholder="https://images.unsplash.com/... or secure photo URL"
+                              value={url}
+                              onChange={(e) => handleImageUrlChange(idx, e.target.value)}
+                              className="text-xs"
+                            />
+                            {imageUrls.length > 1 && (
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveImageUrl(idx)}
+                                className="px-2.5 py-2 rounded-lg text-xs text-red-600 hover:bg-red-50 transition-colors"
+                              >
+                                Remove
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
 
                     {/* Summary Preview Box */}
                     <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200 space-y-3 text-xs sm:text-sm">
                       <div className="flex justify-between border-b border-slate-200 pb-2">
                         <span className="text-slate-500">Category:</span>
                         <span className="font-semibold text-slate-800">{selectedCatObj?.name}</span>
+                      </div>
+                      <div className="flex justify-between border-b border-slate-200 pb-2">
+                        <span className="text-slate-500">Condition:</span>
+                        <span className="font-semibold text-slate-800">{condition.replace("_", " ")}</span>
                       </div>
                       <div className="flex justify-between border-b border-slate-200 pb-2">
                         <span className="text-slate-500">Listing Title:</span>
@@ -346,17 +443,6 @@ export default function PostAdPage() {
                       </div>
                     </div>
 
-                    {/* Media Upload Placeholder Container */}
-                    <div className="p-6 border-2 border-dashed border-slate-300 rounded-2xl text-center">
-                      <ImageIcon className="w-8 h-8 text-slate-400 mx-auto mb-2" />
-                      <p className="text-xs font-semibold text-slate-700">
-                        Object Storage Media Pipeline Ready
-                      </p>
-                      <p className="text-[11px] text-slate-400 mt-1">
-                        Images are validated and prepared for external S3/R2 storage integration.
-                      </p>
-                    </div>
-
                     <div className="flex items-center justify-between pt-4">
                       <Button
                         type="button"
@@ -366,7 +452,7 @@ export default function PostAdPage() {
                         &larr; Back to Pricing
                       </Button>
                       <Button type="submit" variant="primary" size="lg" isLoading={isPending}>
-                        {isPending ? "Saving Listing..." : "Submit Listing for Verification"}
+                        {isPending ? "Saving Listing..." : "Publish Listing"}
                       </Button>
                     </div>
                   </div>

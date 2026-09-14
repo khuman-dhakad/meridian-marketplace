@@ -14,6 +14,7 @@ export const SearchFilters: React.FC = () => {
   const currentQ = searchParams.get("q") || "";
   const currentCategory = searchParams.get("category") || "all";
   const currentLocation = searchParams.get("location") || "all";
+  const currentCondition = searchParams.get("condition") || "all";
   const currentSort = searchParams.get("sortBy") || "newest";
   const currentVerified = searchParams.get("verifiedOnly") === "true";
   const currentMinPrice = searchParams.get("minPrice") || "";
@@ -21,6 +22,7 @@ export const SearchFilters: React.FC = () => {
 
   const [category, setCategory] = useState(currentCategory);
   const [location, setLocation] = useState(currentLocation);
+  const [condition, setCondition] = useState(currentCondition);
   const [sortBy, setSortBy] = useState(currentSort);
   const [verifiedOnly, setVerifiedOnly] = useState(currentVerified);
   const [minPrice, setMinPrice] = useState(currentMinPrice);
@@ -31,6 +33,7 @@ export const SearchFilters: React.FC = () => {
     if (currentQ) params.set("q", currentQ);
     if (category && category !== "all") params.set("category", category);
     if (location && location !== "all") params.set("location", location);
+    if (condition && condition !== "all") params.set("condition", condition);
     if (sortBy && sortBy !== "newest") params.set("sortBy", sortBy);
     if (verifiedOnly) params.set("verifiedOnly", "true");
     if (minPrice) params.set("minPrice", minPrice);
@@ -42,6 +45,7 @@ export const SearchFilters: React.FC = () => {
   const handleReset = () => {
     setCategory("all");
     setLocation("all");
+    setCondition("all");
     setSortBy("newest");
     setVerifiedOnly(false);
     setMinPrice("");
@@ -76,12 +80,32 @@ export const SearchFilters: React.FC = () => {
         <select
           value={sortBy}
           onChange={(e) => setSortBy(e.target.value)}
-          className="w-full text-xs font-medium rounded-lg border border-slate-200 py-2 px-3 bg-slate-50 focus:bg-white focus:outline-none focus:border-brand-600"
+          className="w-full text-xs font-medium rounded-lg border border-slate-200 py-2 px-3 bg-slate-50 focus:bg-white focus:outline-hidden focus:border-brand-600"
         >
           <option value="newest">Newest First</option>
           <option value="popular">Most Popular</option>
           <option value="price_asc">Price: Low to High</option>
           <option value="price_desc">Price: High to Low</option>
+        </select>
+      </div>
+
+      {/* Condition Filter */}
+      <div>
+        <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
+          Item Condition
+        </label>
+        <select
+          value={condition}
+          onChange={(e) => setCondition(e.target.value)}
+          className="w-full text-xs font-medium rounded-lg border border-slate-200 py-2 px-3 bg-slate-50 focus:bg-white focus:outline-hidden focus:border-brand-600"
+        >
+          <option value="all">All Conditions</option>
+          <option value="NEW_CONDITION">Brand New</option>
+          <option value="LIKE_NEW">Like New</option>
+          <option value="EXCELLENT">Excellent</option>
+          <option value="GOOD">Good</option>
+          <option value="FAIR">Fair</option>
+          <option value="FOR_PARTS">For Parts / Not Working</option>
         </select>
       </div>
 
@@ -93,7 +117,7 @@ export const SearchFilters: React.FC = () => {
         <select
           value={category}
           onChange={(e) => setCategory(e.target.value)}
-          className="w-full text-xs font-medium rounded-lg border border-slate-200 py-2 px-3 bg-slate-50 focus:bg-white focus:outline-none focus:border-brand-600"
+          className="w-full text-xs font-medium rounded-lg border border-slate-200 py-2 px-3 bg-slate-50 focus:bg-white focus:outline-hidden focus:border-brand-600"
         >
           <option value="all">All Categories</option>
           {CATEGORIES.map((cat) => (
@@ -112,7 +136,7 @@ export const SearchFilters: React.FC = () => {
         <select
           value={location}
           onChange={(e) => setLocation(e.target.value)}
-          className="w-full text-xs font-medium rounded-lg border border-slate-200 py-2 px-3 bg-slate-50 focus:bg-white focus:outline-none focus:border-brand-600"
+          className="w-full text-xs font-medium rounded-lg border border-slate-200 py-2 px-3 bg-slate-50 focus:bg-white focus:outline-hidden focus:border-brand-600"
         >
           <option value="all">All Regions</option>
           {LOCATIONS.map((loc) => (
@@ -134,14 +158,14 @@ export const SearchFilters: React.FC = () => {
             placeholder="Min"
             value={minPrice}
             onChange={(e) => setMinPrice(e.target.value)}
-            className="w-full text-xs rounded-lg border border-slate-200 py-2 px-2.5 bg-slate-50 focus:bg-white focus:outline-none focus:border-brand-600"
+            className="w-full text-xs rounded-lg border border-slate-200 py-2 px-2.5 bg-slate-50 focus:bg-white focus:outline-hidden focus:border-brand-600"
           />
           <input
             type="number"
             placeholder="Max"
             value={maxPrice}
             onChange={(e) => setMaxPrice(e.target.value)}
-            className="w-full text-xs rounded-lg border border-slate-200 py-2 px-2.5 bg-slate-50 focus:bg-white focus:outline-none focus:border-brand-600"
+            className="w-full text-xs rounded-lg border border-slate-200 py-2 px-2.5 bg-slate-50 focus:bg-white focus:outline-hidden focus:border-brand-600"
           />
         </div>
       </div>

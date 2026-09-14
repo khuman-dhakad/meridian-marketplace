@@ -37,6 +37,7 @@ export interface Seller {
   id: string;
   name: string;
   avatar?: string;
+  phone?: string;
   isVerified: boolean;
   memberSince: string;
   rating: number;
@@ -51,6 +52,22 @@ export interface ListingBadges {
   isUrgent?: boolean;
 }
 
+export type ListingCondition =
+  | "NEW_CONDITION"
+  | "LIKE_NEW"
+  | "EXCELLENT"
+  | "GOOD"
+  | "FAIR"
+  | "FOR_PARTS";
+
+export type ListingStatusType =
+  | "DRAFT"
+  | "PENDING_REVIEW"
+  | "PUBLISHED"
+  | "REJECTED"
+  | "EXPIRED"
+  | "ARCHIVED";
+
 export interface Listing {
   id: string;
   title: string;
@@ -60,6 +77,8 @@ export interface Listing {
   currency: string;
   isNegotiable: boolean;
   priceType?: "fixed" | "hourly" | "monthly" | "free" | "contact";
+  condition?: ListingCondition;
+  status?: ListingStatusType;
   categorySlug: string;
   categoryName: string;
   locationSlug: string;
@@ -73,16 +92,27 @@ export interface Listing {
   badges: ListingBadges;
   createdAt: string;
   viewsCount: number;
+  contactPhone?: string;
+  isFavorited?: boolean;
 }
 
 export interface SearchFilters {
   query?: string;
   category?: string;
   location?: string;
+  condition?: string;
   minPrice?: number;
   maxPrice?: number;
   sortBy?: "newest" | "price_asc" | "price_desc" | "popular";
   verifiedOnly?: boolean;
   page?: number;
   limit?: number;
+}
+
+export interface SearchResults {
+  listings: Listing[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
 }
