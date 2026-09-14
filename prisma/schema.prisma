@@ -1,0 +1,347 @@
+// =====================================================================
+// MERIDIAN MARKETPLACE — PRODUCTION PRISMA DATABASE SCHEMA
+// =====================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------
+
+enum Role {
+  USER
+  BUSINESS
+  MODERATOR
+  ADMIN
+}
+
+enum ListingStatus {
+  DRAFT
+  PENDING_REVIEW
+  PUBLISHED
+  REJECTED
+  EXPIRED
+  ARCHIVED
+}
+
+enum PriceType {
+  FIXED
+  HOURLY
+  MONTHLY
+  FREE
+  CONTACT
+}
+
+enum ReportStatus {
+  PENDING
+  INVESTIGATING
+  RESOLVED
+  DISMISSED
+}
+
+enum VerificationType {
+  GOVERNMENT_ID
+  PHONE
+  BUSINESS_LICENSE
+}
+
+enum VerificationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum PromotionType {
+  FEATURED
+  VIP
+  URGENT
+}
+
+enum PromotionStatus {
+  ACTIVE
+  SCHEDULED
+  EXPIRED
+}
+
+// ---------------------------------------------------------------------
+// User & Authentication Models
+// ---------------------------------------------------------------------
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  passwordHash  String
+  name          String
+  role          Role      @default(USER)
+  emailVerified DateTime?
+  lastLoginAt   DateTime?
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  profile               Profile?
+  listings              Listing[]
+  favorites             Favorite[]
+  sessions              Session[]
+  sentMessages          Message[]
+  conversationsAsBuyer  Conversation[] @relation("BuyerConversations")
+  conversationsAsSeller Conversation[] @relation("SellerConversations")
+  filedReports          Report[]       @relation("ReporterReports")
+  reportsAgainst        Report[]       @relation("ReportedUserReports")
+  verifications         Verification[]
+
+  @@index([email])
+  @@index([role])
+  @@index([isActive])
+}
+
+model Profile {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  displayName   String?
+  bio           String?
+  avatar        String?
+  phone         String?
+  location      String?
+  businessName  String?
+  businessTaxId String?
+  isVerified    Boolean  @default(false)
+  rating        Float    @default(5.0)
+  reviewCount   Int      @default(0)
+  responseTime  String   @default("< 1 hour")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// In compliance with Meridian security policy: PostgreSQL stores ONLY the
+// one-way SHA-256 hash (tokenHash). The raw session token is kept only in
+// the HTTP-only browser cookie.
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tokenHash])
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+// ---------------------------------------------------------------------
+// Taxonomy & Discovery Models
+// ---------------------------------------------------------------------
+
+model Category {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String
+  icon        String
+  parentId    String?
+  isActive    Boolean  @default(true)
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  parent   Category?  @relation("CategoryHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children Category[] @relation("CategoryHierarchy")
+  listings Listing[]
+
+  @@index([slug])
+  @@index([parentId])
+  @@index([isActive])
+}
+
+model Location {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  state     String
+  parentId  String?
+  isMajor   Boolean  @default(false)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  parent   Location?  @relation("LocationHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children Location[] @relation("LocationHierarchy")
+  listings Listing[]
+
+  @@index([slug])
+  @@index([state])
+  @@index([parentId])
+}
+
+// ---------------------------------------------------------------------
+// Classified Listing Models
+// ---------------------------------------------------------------------
+
+model Listing {
+  id          String        @id @default(cuid())
+  slug        String        @unique
+  title       String
+  description String
+  price       Decimal       @db.Decimal(12, 2)
+  currency    String        @default("USD")
+  negotiable  Boolean       @default(false)
+  priceType   PriceType     @default(FIXED)
+  status      ListingStatus @default(PUBLISHED)
+  viewsCount  Int           @default(0)
+
+  sellerId   String
+  categoryId String
+  locationId String
+
+  publishedAt DateTime? @default(now())
+  expiresAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  seller        User               @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  category      Category           @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  location      Location           @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  images        ListingImage[]
+  favorites     Favorite[]
+  promotions    ListingPromotion[]
+  reports       Report[]
+  conversations Conversation[]
+
+  @@index([slug])
+  @@index([status])
+  @@index([categoryId])
+  @@index([locationId])
+  @@index([sellerId])
+  @@index([price])
+  @@index([publishedAt])
+  @@index([createdAt])
+}
+
+model ListingImage {
+  id        String   @id @default(cuid())
+  listingId String
+  url       String
+  altText   String
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  listing Listing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@index([listingId])
+  @@index([sortOrder])
+}
+
+model Favorite {
+  id        String   @id @default(cuid())
+  userId    String
+  listingId String
+  createdAt DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  listing Listing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, listingId])
+  @@index([userId])
+  @@index([listingId])
+}
+
+model ListingPromotion {
+  id        String          @id @default(cuid())
+  listingId String
+  type      PromotionType
+  status    PromotionStatus @default(ACTIVE)
+  startsAt  DateTime        @default(now())
+  endsAt    DateTime
+  createdAt DateTime        @default(now())
+
+  listing Listing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@index([listingId])
+  @@index([status])
+}
+
+// ---------------------------------------------------------------------
+// Communication & Safety Models
+// ---------------------------------------------------------------------
+
+model Conversation {
+  id        String   @id @default(cuid())
+  listingId String?
+  buyerId   String
+  sellerId  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  listing  Listing?  @relation(fields: [listingId], references: [id], onDelete: SetNull)
+  buyer    User      @relation("BuyerConversations", fields: [buyerId], references: [id], onDelete: Cascade)
+  seller   User      @relation("SellerConversations", fields: [sellerId], references: [id], onDelete: Cascade)
+  messages Message[]
+
+  @@index([buyerId, sellerId])
+  @@index([listingId])
+}
+
+model Message {
+  id             String    @id @default(cuid())
+  conversationId String
+  senderId       String
+  body           String
+  readAt         DateTime?
+  createdAt      DateTime  @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender       User         @relation(fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([senderId])
+  @@index([createdAt])
+}
+
+model Report {
+  id             String       @id @default(cuid())
+  reporterId     String
+  listingId      String?
+  reportedUserId String?
+  reason         String
+  description    String
+  status         ReportStatus @default(PENDING)
+  createdAt      DateTime     @default(now())
+  resolvedAt     DateTime?
+
+  reporter     User     @relation("ReporterReports", fields: [reporterId], references: [id], onDelete: Cascade)
+  listing      Listing? @relation(fields: [listingId], references: [id], onDelete: SetNull)
+  reportedUser User?    @relation("ReportedUserReports", fields: [reportedUserId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([listingId])
+  @@index([reporterId])
+}
+
+model Verification {
+  id         String             @id @default(cuid())
+  userId     String
+  type       VerificationType
+  status     VerificationStatus @default(PENDING)
+  verifiedAt DateTime?
+  notes      String?
+  createdAt  DateTime           @default(now())
+  updatedAt  DateTime           @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+}

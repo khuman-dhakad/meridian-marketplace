@@ -5,8 +5,14 @@ import Link from "next/link";
 import { MapPin, Menu, PlusCircle, Search, ShieldCheck, ChevronDown, Sparkles } from "lucide-react";
 import { LocationModal } from "./LocationModal";
 import { MobileNav } from "./MobileNav";
+import { SessionUser } from "@/lib/auth/session";
+import { logoutAction } from "@/lib/auth/actions";
 
-export const Header: React.FC = () => {
+export interface HeaderProps {
+  initialUser?: SessionUser | null;
+}
+
+export const Header: React.FC<HeaderProps> = ({ initialUser }) => {
   const [isLocationModalOpen, setIsLocationModalOpen] = useState(false);
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   const [selectedLocation, setSelectedLocation] = useState<{ slug: string; name: string }>({
@@ -37,7 +43,7 @@ export const Header: React.FC = () => {
               </Link>
               <span className="text-slate-700">|</span>
               <Link href="/dashboard" className="hover:text-white transition-colors">
-                Dealer & Business Portal
+                {initialUser ? "My Account" : "Dealer & Business Portal"}
               </Link>
             </div>
           </div>
@@ -122,21 +128,44 @@ export const Header: React.FC = () => {
                 <MapPin className="w-5 h-5 text-brand-600" />
               </button>
 
-              {/* Login / Register (Desktop) */}
-              <div className="hidden sm:flex items-center gap-1">
-                <Link
-                  href="/login"
-                  className="px-3 py-2 text-sm font-semibold text-slate-700 hover:text-brand-600 transition-colors rounded-lg"
-                >
-                  Sign In
-                </Link>
-                <Link
-                  href="/register"
-                  className="px-3 py-2 text-sm font-semibold text-slate-700 hover:text-brand-600 transition-colors rounded-lg"
-                >
-                  Register
-                </Link>
-              </div>
+              {/* User Account Controls */}
+              {initialUser ? (
+                <div className="hidden sm:flex items-center gap-2">
+                  <Link
+                    href="/dashboard"
+                    className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-xs font-semibold text-slate-800 transition-colors"
+                  >
+                    <span className="w-5 h-5 rounded-full bg-brand-600 text-white flex items-center justify-center text-[10px] font-bold">
+                      {initialUser.name[0]?.toUpperCase()}
+                    </span>
+                    <span className="max-w-[100px] truncate">{initialUser.name}</span>
+                  </Link>
+
+                  <form action={logoutAction}>
+                    <button
+                      type="submit"
+                      className="px-2.5 py-1.5 text-xs font-semibold text-slate-500 hover:text-slate-800 transition-colors"
+                    >
+                      Sign Out
+                    </button>
+                  </form>
+                </div>
+              ) : (
+                <div className="hidden sm:flex items-center gap-1">
+                  <Link
+                    href="/login"
+                    className="px-3 py-2 text-sm font-semibold text-slate-700 hover:text-brand-600 transition-colors rounded-lg"
+                  >
+                    Sign In
+                  </Link>
+                  <Link
+                    href="/register"
+                    className="px-3 py-2 text-sm font-semibold text-slate-700 hover:text-brand-600 transition-colors rounded-lg"
+                  >
+                    Register
+                  </Link>
+                </div>
+              )}
 
               {/* Post Ad CTA */}
               <Link
